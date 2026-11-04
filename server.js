@@ -4,6 +4,7 @@
 
 const http = require('http');
 const zlib = require('zlib');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 7000;
 const FORMAT = (process.env.FORMAT || 'vtt').toLowerCase(); // vtt | srt
@@ -18,6 +19,61 @@ const MODES = {
   rle: 'ניקוי + RLE/PDF סביב כל שורה',
   visual: 'ניקוי + היפוך ויזואלי של השורה',
 };
+
+// ---------- per-install config (list of upstream addons, stored in the URL path) ----------
+const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE === '1'; // for local testing only
+
+function cleanBase(s) {
+  return String(s).trim().replace(/\/manifest\.json$/i, '').replace(/\/$/, '');
+}
+
+function isSafeUrl(u) {
+  try {
+    const x = new URL(u);
+    if (!/^https?:$/.test(x.protocol)) return false;
+    if (ALLOW_PRIVATE) return true;
+    const h = x.hostname.toLowerCase();
+    if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal') || h.startsWith('[')) return false;
+    if (/^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseCfg(str) {
+  try {
+    const arr = JSON.parse(Buffer.from(str, 'base64url').toString('utf8'));
+    if (!Array.isArray(arr)) return null;
+    const list = arr.map(cleanBase).filter(isSafeUrl).slice(0, 10);
+    return list.length ? list : null;
+  } catch {
+    return null;
+  }
+}
+
+const CONFIG_PAGE = `<!doctype html><html dir="rtl" lang="he"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hebrew Subtitle Fix</title>
+<body style="font-family:sans-serif;max-width:680px;margin:2em auto;padding:0 1em;line-height:1.5">
+<h2>Hebrew Subtitle Fix</h2>
+<p>הדבק כתובות manifest של addons כתוביות (אחת בכל שורה). השרת יאחד מהם את הכתוביות בעברית, ינקה ויגיש אותן.</p>
+<label><input type="checkbox" id="os" checked> כלול OpenSubtitles</label><br><br>
+<textarea id="ups" rows="5" style="width:100%;direction:ltr" placeholder="https://example.com/manifest.json"></textarea><br><br>
+<label>מצב ניקוי: <select id="mode">__MODES__</select></label><br><br>
+<button onclick="gen()">צור קישור התקנה</button>
+<div id="out" style="margin-top:1em"></div>
+<script>
+function gen(){
+  var lines=document.getElementById('ups').value.split('\\n').map(function(s){return s.trim().replace(/\\/manifest\\.json$/i,'').replace(/\\/$/,'');}).filter(Boolean);
+  if(document.getElementById('os').checked) lines.unshift('https://opensubtitles-v3.strem.io');
+  var out=document.getElementById('out');
+  if(!lines.length){out.textContent='הוסף לפחות addon אחד.';return;}
+  var cfg=btoa(JSON.stringify(lines)).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+  var path='/'+document.getElementById('mode').value+'/'+cfg+'/manifest.json';
+  var https=location.origin+path, st='stremio://'+location.host+path;
+  out.innerHTML='<p><a href="'+st+'">התקן ב-Stremio</a></p><p>או הדבק ידנית ב-Addons:</p><textarea readonly rows="3" style="width:100%;direction:ltr" onclick="this.select()">'+https+'</textarea>';
+}
+</script></body></html>`;
 
 const HEB_LANGS = new Set(['heb', 'he', 'iw', 'hebrew', 'עברית']);
 const BIDI_CHARS = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
@@ -103,11 +159,12 @@ function baseUrl(req) {
   return `${proto}://${req.headers.host}`;
 }
 
-function manifest(mode) {
+function manifest(mode, cfgStr) {
+  const suffix = cfgStr ? '.' + crypto.createHash('sha1').update(cfgStr).digest('hex').slice(0, 8) : '';
   return {
-    id: `community.hebfix.${mode}`,
+    id: `community.hebfix.${mode}${suffix}`,
     version: '1.0.0',
-    name: `Hebrew Subtitle Fix (${mode})`,
+    name: `Hebrew Subtitle Fix (${mode}${cfgStr ? ', custom' : ''})`,
     description: `כתוביות בעברית עם תיקון קידוד וכיווניות. מצב: ${MODES[mode]}`,
     resources: ['subtitles'],
     types: ['movie', 'series'],
@@ -116,10 +173,10 @@ function manifest(mode) {
   };
 }
 
-async function getSubtitles(req, restPath, mode) {
+async function getSubtitles(req, restPath, mode, upstreams) {
   const base = baseUrl(req);
   const results = await Promise.all(
-    UPSTREAMS.map(async (up) => {
+    upstreams.map(async (up) => {
       try {
         const r = await fetch(`${up}/${restPath}`, { signal: AbortSignal.timeout(10000) });
         if (!r.ok) return [];
@@ -160,25 +217,33 @@ const server = http.createServer(async (req, res) => {
     const parts = url.pathname.split('/').filter(Boolean);
 
     if (!parts.length) {
-      const base = baseUrl(req);
-      const links = Object.keys(MODES)
-        .map((m) => `<li><b>${m}</b> - ${MODES[m]}<br><code>${base}/${m}/manifest.json</code></li>`)
-        .join('');
-      return send(res, 200, `<meta charset="utf-8"><body dir="rtl" style="font-family:sans-serif"><h2>Hebrew Subtitle Fix</h2><p>הדבק אחת מהכתובות ב-Stremio (Addons ← Add addon):</p><ul>${links}</ul></body>`, 'text/html; charset=utf-8');
+      const opts = Object.keys(MODES).map((m) => `<option value="${m}">${m} - ${MODES[m]}</option>`).join('');
+      return send(res, 200, CONFIG_PAGE.replace('__MODES__', opts), 'text/html; charset=utf-8');
     }
 
     const mode = parts[0];
     if (!MODES[mode]) return send(res, 404, { error: 'unknown mode' });
 
-    if (parts[1] === 'manifest.json') return send(res, 200, manifest(mode));
-
-    if (parts[1] === 'subtitles') {
-      return send(res, 200, await getSubtitles(req, parts.slice(1).join('/'), mode));
+    // optional config segment: /<mode>/<base64url cfg>/manifest.json
+    let rest = parts.slice(1);
+    let cfgStr = '';
+    let upstreams = UPSTREAMS;
+    if (rest[0] && rest[0] !== 'manifest.json' && rest[0] !== 'subtitles' && !rest[0].startsWith('sub.')) {
+      cfgStr = rest[0];
+      upstreams = parseCfg(cfgStr);
+      if (!upstreams) return send(res, 400, { error: 'bad config' });
+      rest = rest.slice(1);
     }
 
-    if (parts[1] && parts[1].startsWith('sub.')) {
+    if (rest[0] === 'manifest.json') return send(res, 200, manifest(mode, cfgStr));
+
+    if (rest[0] === 'subtitles') {
+      return send(res, 200, await getSubtitles(req, rest.join('/'), mode, upstreams));
+    }
+
+    if (rest[0] && rest[0].startsWith('sub.')) {
       const u = url.searchParams.get('u');
-      if (!/^https?:\/\//i.test(u || '')) return send(res, 400, 'bad url', 'text/plain');
+      if (!isSafeUrl(u || '')) return send(res, 400, 'bad url', 'text/plain');
       return await serveSub(res, u, mode);
     }
 
