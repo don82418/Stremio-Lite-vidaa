@@ -169,8 +169,8 @@ function tsrt(sec) {
 function buildTest() {
   const sentence = 'שלום עולם, זה הסרט הכי יפה שראיתי';
   const names = Object.keys(SPACES);
-  const cues = [];
-  let t = 2;
+  const cues = ['1\n00:00:00,500 --> 00:00:03,000\nHEBFIX TEST OK'];
+  let t = 4;
   for (let round = 0; round < 20; round++) {
     names.forEach((n, i) => {
       [['1', false], ['2', true]].forEach(([o, vis]) => {
@@ -257,6 +257,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, '');
     const url = new URL(req.url, 'http://x');
     const parts = url.pathname.split('/').filter(Boolean);
+    console.log(new Date().toISOString(), req.method, url.pathname.slice(0, 120));
 
     if (!parts.length) {
       const opts = Object.keys(MODES).map((m) => `<option value="${m}">${m} - ${MODES[m]}</option>`).join('');
