@@ -1,0 +1,9 @@
+{
+  "name": "hebfix-addon",
+  "version": "1.0.0",
+  "description": "Stremio addon that cleans Hebrew subtitles (encoding + bidi) for TVs with poor RTL rendering",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

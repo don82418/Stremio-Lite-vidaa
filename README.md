@@ -1,1 +1,37 @@
-# Stremio-Lite-vidaa
+# Hebrew Subtitle Fix – תוסף Stremio
+
+שרת קטן שמושך כתוביות בעברית מ-OpenSubtitles (או מכל addon כתוביות אחר), מנקה אותן ומגיש לטלוויזיה קובץ נקי.
+
+## מה הוא עושה
+- מזהה קידוד (UTF-8 / UTF-16 / Windows-1255) וממיר ל-UTF-8
+- מסיר תווי כיווניות נסתרים (RLM, LRM, RLE, PDF, zero-width וכו') שגורמים לרווחים בין אותיות
+- מגיש WebVTT (או SRT עם `FORMAT=srt`)
+
+## ארבעה מצבים (כי כל מנוע רינדור מגיב אחרת)
+| כתובת | מה עושה |
+|---|---|
+| `/plain/manifest.json` | רק ניקוי תווים נסתרים |
+| `/rlm/manifest.json` | ניקוי + RLM בתחילת/סוף שורה |
+| `/rle/manifest.json` | ניקוי + RLE/PDF סביב השורה |
+| `/visual/manifest.json` | היפוך ויזואלי (לנגנים שלא מבצעים RTL בכלל) |
+
+התקן את כולם, ובטלוויזיה בחר כתובית בכל אחד עד שאחד נראה טוב. מתחילים מ-`plain`.
+
+## הרצה מקומית
+```
+node server.js
+```
+בדיקה: http://localhost:7000
+
+## פריסה בחינם (נדרש HTTPS לטלוויזיה)
+**Render.com:** New → Web Service → חבר repo של GitHub עם הקבצים האלה.
+Build command: ריק. Start command: `node server.js`.
+אחרי הפריסה פתח את הכתובת הראשית של השירות, תקבל דף עם הכתובות להתקנה.
+
+## משתני סביבה (אופציונלי)
+- `UPSTREAMS` – רשימת בסיסי addons מופרדת בפסיקים (ברירת מחדל: opensubtitles-v3.strem.io). אפשר להוסיף addon כתוביות אחר: הדבק את כתובת ה-manifest שלו בלי `/manifest.json`.
+- `FORMAT` – `vtt` (ברירת מחדל) או `srt`
+- `BASE_URL` – אם השירות שלך מאחורי proxy ולא מזהה את הכתובת הציבורית
+
+## התקנה ב-Stremio
+Addons ← הדבק כתובת manifest ← Install. (בגרסת הטלוויזיה אפשר להתקין דרך חשבון Stremio בטלפון/מחשב, והוא יסתנכרן.)
