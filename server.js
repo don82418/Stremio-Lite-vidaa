@@ -31,7 +31,7 @@ const SPACES = {
   emsp: ' ',
   figure: ' ',
 };
-const TV_SPACE = SPACES[process.env.TV_SPACE] ? process.env.TV_SPACE : 'nbsp2';
+const TV_SPACE = SPACES[process.env.TV_SPACE] ? process.env.TV_SPACE : 'emsp';
 const TV_VISUAL = process.env.TV_VISUAL === '1';
 
 // ---------- per-install config (list of upstream addons, stored in the URL path) ----------
