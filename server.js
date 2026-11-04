@@ -18,7 +18,21 @@ const MODES = {
   rlm: 'ניקוי + RLM בתחילת כל שורה',
   rle: 'ניקוי + RLE/PDF סביב כל שורה',
   visual: 'ניקוי + היפוך ויזואלי של השורה',
+  tv: 'ניקוי + רווח רחב בין מילים (מותאם לטלוויזיה)',
+  test: 'בדיקה: כתובית לדוגמה עם וריאציות רווח',
 };
+
+// word-space variants (the TV swallows or shrinks a regular space)
+const SPACES = {
+  regular: ' ',
+  nbsp: ' ',
+  nbsp2: '  ',
+  ensp: ' ',
+  emsp: ' ',
+  figure: ' ',
+};
+const TV_SPACE = SPACES[process.env.TV_SPACE] ? process.env.TV_SPACE : 'nbsp2';
+const TV_VISUAL = process.env.TV_VISUAL === '1';
 
 // ---------- per-install config (list of upstream addons, stored in the URL path) ----------
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE === '1'; // for local testing only
@@ -111,6 +125,10 @@ function fixLine(line, mode) {
       return '\u202B' + t + '\u202C';
     case 'visual':
       return visualReverse(t.replace(/<[^>]+>/g, ''));
+    case 'tv': {
+      const s = TV_VISUAL ? visualReverse(t.replace(/<[^>]+>/g, '')) : t;
+      return s.replace(/ +/g, SPACES[TV_SPACE]);
+    }
     default:
       return t;
   }
@@ -140,6 +158,30 @@ function processSubs(raw, mode, fmt) {
     out.map((c, i) => `${i + 1}\n${c.timing.replace(/,/g, '.')}\n${c.body.join('\n')}`).join('\n\n') +
     '\n'
   );
+}
+
+// ---------- test track: same sentence, many space variants ----------
+function tsrt(sec) {
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${p(Math.floor(sec / 3600))}:${p(Math.floor((sec % 3600) / 60))}:${p(Math.floor(sec % 60))},000`;
+}
+
+function buildTest() {
+  const sentence = 'שלום עולם, זה הסרט הכי יפה שראיתי';
+  const names = Object.keys(SPACES);
+  const cues = [];
+  let t = 2;
+  for (let round = 0; round < 2; round++) {
+    names.forEach((n, i) => {
+      [['1', false], ['2', true]].forEach(([o, vis]) => {
+        const base = vis ? visualReverse(sentence) : sentence;
+        const body = base.replace(/ /g, SPACES[n]);
+        cues.push(`${cues.length + 1}\n${tsrt(t)} --> ${tsrt(t + 4)}\n${String.fromCharCode(65 + i)}${o}\n${body}`);
+        t += 5;
+      });
+    });
+  }
+  return processSubs(cues.join('\n\n') + '\n', 'plain', FORMAT);
 }
 
 // ---------- http helpers ----------
@@ -237,8 +279,16 @@ const server = http.createServer(async (req, res) => {
 
     if (rest[0] === 'manifest.json') return send(res, 200, manifest(mode, cfgStr));
 
+    if (rest[0] === 'subtitles' && mode === 'test') {
+      return send(res, 200, { subtitles: [{ id: 'hebfix-test', url: `${baseUrl(req)}/test/sub.${FORMAT}`, lang: 'heb' }] });
+    }
+
     if (rest[0] === 'subtitles') {
       return send(res, 200, await getSubtitles(req, rest.join('/'), mode, upstreams));
+    }
+
+    if (rest[0] && rest[0].startsWith('sub.') && mode === 'test') {
+      return send(res, 200, buildTest(), FORMAT === 'srt' ? 'application/x-subrip; charset=utf-8' : 'text/vtt; charset=utf-8');
     }
 
     if (rest[0] && rest[0].startsWith('sub.')) {
