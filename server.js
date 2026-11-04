@@ -206,7 +206,7 @@ function manifest(mode, cfgStr) {
   return {
     id: `community.hebfix.${mode}${suffix}`,
     version: '1.0.0',
-    name: `Hebrew Subtitle Fix (${mode}${cfgStr ? ', custom' : ''})`,
+    name: mode === 'tv' ? 'Hebrew Subtitle Fix' : `Hebrew Subtitle Fix (${mode}${cfgStr ? ', custom' : ''})`,
     description: `כתוביות בעברית עם תיקון קידוד וכיווניות. מצב: ${MODES[mode]}`,
     resources: ['subtitles'],
     types: ['movie', 'series'],
@@ -260,7 +260,7 @@ const server = http.createServer(async (req, res) => {
     console.log(new Date().toISOString(), req.method, url.pathname.slice(0, 120));
 
     if (!parts.length) {
-      const opts = Object.keys(MODES).map((m) => `<option value="${m}">${m} - ${MODES[m]}</option>`).join('');
+      const opts = `<option value="tv">${MODES.tv}</option>`;
       return send(res, 200, CONFIG_PAGE.replace('__MODES__', opts), 'text/html; charset=utf-8');
     }
 
