@@ -171,7 +171,7 @@ function buildTest() {
   const names = Object.keys(SPACES);
   const cues = [];
   let t = 2;
-  for (let round = 0; round < 2; round++) {
+  for (let round = 0; round < 20; round++) {
     names.forEach((n, i) => {
       [['1', false], ['2', true]].forEach(([o, vis]) => {
         const base = vis ? visualReverse(sentence) : sentence;
