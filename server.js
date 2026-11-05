@@ -39,15 +39,38 @@ const TV_VISUAL = process.env.TV_VISUAL === '1';
 // gap:  A = none, B = CSS line-height 1.6, C = a real spacer line between lines
 const TV_SIZE = ['1', '2', '3'].includes(process.env.TV_SIZE) ? process.env.TV_SIZE : '1';
 const TV_GAP = ['A', 'B', 'C'].includes(process.env.TV_GAP) ? process.env.TV_GAP : 'C';
-const VTT_STYLE =
-  'STYLE\n::cue(.sz2){font-size:130%}\n::cue(.sz3){font-size:160%}\n::cue(.gpB){line-height:1.6}\n\n';
+// letter-tightening experiments. L*/F* = CSS (letter-spacing / font-family), G1 = glyph swap (yod, vav)
+const TWEAKS = {
+  L1: 'letter-spacing:-0.05em',
+  L2: 'letter-spacing:-0.1em',
+  F1: 'font-family:Arial,sans-serif',
+  F2: 'font-family:Roboto,sans-serif',
+  F3: "font-family:'Noto Sans Hebrew','Noto Sans',sans-serif",
+  F4: 'font-family:sans-serif',
+  F5: 'font-family:serif',
+};
+const TV_TWEAK = (process.env.TV_TWEAK || '0').toUpperCase();
 
-function decorate(lines, size, gap) {
+function swapGlyphs(t) {
+  return t.replace(/י/g, '׳').replace(/ו/g, '׀');
+}
+
+function vttStyle(keys = []) {
+  const extra = keys.filter((k) => TWEAKS[k]).map((k) => `::cue(.tw${k}){${TWEAKS[k]}}`);
+  return (
+    'STYLE\n::cue(.sz2){font-size:130%}\n::cue(.sz3){font-size:160%}\n::cue(.gpB){line-height:1.6}\n' +
+    (extra.length ? extra.join('\n') + '\n' : '') +
+    '\n'
+  );
+}
+
+function decorate(lines, size, gap, tweak = '0') {
   let l = lines;
   if (gap === 'C' && l.length > 1) l = l.flatMap((x, i) => (i ? [' ', x] : [x]));
   const cls = [];
   if (size !== '1') cls.push('sz' + size);
   if (gap === 'B') cls.push('gpB');
+  if (TWEAKS[tweak]) cls.push('tw' + tweak);
   const txt = l.join('\n');
   return cls.length ? `<c.${cls.join('.')}>${txt}</c>` : txt;
 }
@@ -144,7 +167,8 @@ function fixLine(line, mode) {
     case 'visual':
       return visualReverse(t.replace(/<[^>]+>/g, ''));
     case 'tv': {
-      const s = TV_VISUAL ? visualReverse(t.replace(/<[^>]+>/g, '')) : t;
+      let s = TV_VISUAL ? visualReverse(t.replace(/<[^>]+>/g, '')) : t;
+      if (TV_TWEAK === 'G1') s = swapGlyphs(s);
       return s.replace(/ +/g, SPACES[TV_SPACE]);
     }
     default:
@@ -172,13 +196,13 @@ function processSubs(raw, mode, fmt) {
       .join('\n\n') + '\n';
   }
   const tv = mode === 'tv';
-  const styled = tv && (TV_SIZE !== '1' || TV_GAP === 'B');
+  const styled = tv && (TV_SIZE !== '1' || TV_GAP === 'B' || TWEAKS[TV_TWEAK]);
   return (
     'WEBVTT\n\n' +
-    (styled ? VTT_STYLE : '') +
+    (styled ? vttStyle([TV_TWEAK]) : '') +
     out
       .map((c, i) => {
-        const body = tv ? decorate(c.body, TV_SIZE, TV_GAP) : c.body.join('\n');
+        const body = tv ? decorate(c.body, TV_SIZE, TV_GAP, TV_TWEAK) : c.body.join('\n');
         return `${i + 1}\n${c.timing.replace(/,/g, '.')}\n${body}`;
       })
       .join('\n\n') +
@@ -192,24 +216,27 @@ function tsrt(sec) {
   return `${p(Math.floor(sec / 3600))}:${p(Math.floor((sec % 3600) / 60))}:${p(Math.floor(sec % 60))},000`;
 }
 
-// Test track (always WebVTT): text size 1-3 x line gap A-C, two-line sample, chosen word space.
+// Test track (always WebVTT): letter-tightening experiments on a sample full of yod / vav / nun.
+// Uses the chosen word space (TV_SPACE) and the chosen line layout (size 1, spacer line C).
 function buildTest() {
   const sp = SPACES[TV_SPACE];
-  const line1 = ['שלום', 'עולם,', 'זה', 'הסרט', 'הכי', 'יפה'].join(sp);
-  const line2 = ['שראיתי', 'בחיים', 'שלי'].join(sp);
+  const codes = ['0', 'L1', 'L2', 'F1', 'F2', 'F3', 'F4', 'F5', 'G1'];
   const vt = (s) => tsrt(s).replace(',', '.');
   const cues = ['1\n00:00:00.500 --> 00:00:03.000\nHEBFIX TEST OK'];
   let t = 4;
   for (let round = 0; round < 15; round++) {
-    for (const size of ['1', '2', '3']) {
-      for (const gap of ['A', 'B', 'C']) {
-        const body = `${size}${gap}\n${decorate([line1, line2], size, gap)}`;
-        cues.push(`${cues.length + 1}\n${vt(t)} --> ${vt(t + 5)}\n${body}`);
-        t += 6;
+    for (const code of codes) {
+      let l1 = ['יוני', 'נוסע', 'לניו', 'יורק'].join(sp);
+      let l2 = ['ביום', 'ראשון', 'בנובמבר'].join(sp);
+      if (code === 'G1') {
+        l1 = swapGlyphs(l1);
+        l2 = swapGlyphs(l2);
       }
+      cues.push(`${cues.length + 1}\n${vt(t)} --> ${vt(t + 5)}\n${code}\n${decorate([l1, l2], '1', 'C', code)}`);
+      t += 6;
     }
   }
-  return 'WEBVTT\n\n' + VTT_STYLE + cues.join('\n\n') + '\n';
+  return 'WEBVTT\n\n' + vttStyle(codes) + cues.join('\n\n') + '\n';
 }
 
 // ---------- http helpers ----------
