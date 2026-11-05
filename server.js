@@ -38,7 +38,7 @@ const TV_VISUAL = process.env.TV_VISUAL === '1';
 // size: 1 = normal, 2 = 130%, 3 = 160%   (CSS font-size via WebVTT STYLE)
 // gap:  A = none, B = CSS line-height 1.6, C = a real spacer line between lines
 const TV_SIZE = ['1', '2', '3'].includes(process.env.TV_SIZE) ? process.env.TV_SIZE : '1';
-const TV_GAP = ['A', 'B', 'C'].includes(process.env.TV_GAP) ? process.env.TV_GAP : 'A';
+const TV_GAP = ['A', 'B', 'C'].includes(process.env.TV_GAP) ? process.env.TV_GAP : 'C';
 const VTT_STYLE =
   'STYLE\n::cue(.sz2){font-size:130%}\n::cue(.sz3){font-size:160%}\n::cue(.gpB){line-height:1.6}\n\n';
 
