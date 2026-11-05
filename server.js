@@ -51,6 +51,12 @@ const TWEAKS = {
 };
 const TV_TWEAK = (process.env.TV_TWEAK || '0').toUpperCase();
 
+// invisible joiners placed between consecutive Hebrew letters (J1 = ZWJ, J2 = word joiner, J3 = ZWNJ)
+const JOINERS = { J1: '‍', J2: '⁠', J3: '‌' };
+function joinLetters(t, ch) {
+  return t.replace(/([א-ת])(?=[א-ת])/g, '$1' + ch);
+}
+
 function swapGlyphs(t) {
   return t.replace(/י/g, '׳').replace(/ו/g, '׀');
 }
@@ -169,6 +175,7 @@ function fixLine(line, mode) {
     case 'tv': {
       let s = TV_VISUAL ? visualReverse(t.replace(/<[^>]+>/g, '')) : t;
       if (TV_TWEAK === 'G1') s = swapGlyphs(s);
+      if (JOINERS[TV_TWEAK]) s = joinLetters(s, JOINERS[TV_TWEAK]);
       return s.replace(/ +/g, SPACES[TV_SPACE]);
     }
     default:
@@ -220,17 +227,17 @@ function tsrt(sec) {
 // Uses the chosen word space (TV_SPACE) and the chosen line layout (size 1, spacer line C).
 function buildTest() {
   const sp = SPACES[TV_SPACE];
-  const codes = ['0', 'L1', 'L2', 'F1', 'F2', 'F3', 'F4', 'F5', 'G1'];
+  const codes = ['0', 'J1', 'J2', 'J3'];
   const vt = (s) => tsrt(s).replace(',', '.');
   const cues = ['1\n00:00:00.500 --> 00:00:03.000\nHEBFIX TEST OK'];
   let t = 4;
-  for (let round = 0; round < 15; round++) {
+  for (let round = 0; round < 40; round++) {
     for (const code of codes) {
       let l1 = ['יוני', 'נוסע', 'לניו', 'יורק'].join(sp);
       let l2 = ['ביום', 'ראשון', 'בנובמבר'].join(sp);
-      if (code === 'G1') {
-        l1 = swapGlyphs(l1);
-        l2 = swapGlyphs(l2);
+      if (JOINERS[code]) {
+        l1 = joinLetters(l1, JOINERS[code]);
+        l2 = joinLetters(l2, JOINERS[code]);
       }
       cues.push(`${cues.length + 1}\n${vt(t)} --> ${vt(t + 5)}\n${code}\n${decorate([l1, l2], '1', 'C', code)}`);
       t += 6;
