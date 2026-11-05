@@ -34,6 +34,24 @@ const SPACES = {
 const TV_SPACE = SPACES[process.env.TV_SPACE] ? process.env.TV_SPACE : 'emsp';
 const TV_VISUAL = process.env.TV_VISUAL === '1';
 
+// ---------- text size + line gap ----------
+// size: 1 = normal, 2 = 130%, 3 = 160%   (CSS font-size via WebVTT STYLE)
+// gap:  A = none, B = CSS line-height 1.6, C = a real spacer line between lines
+const TV_SIZE = ['1', '2', '3'].includes(process.env.TV_SIZE) ? process.env.TV_SIZE : '1';
+const TV_GAP = ['A', 'B', 'C'].includes(process.env.TV_GAP) ? process.env.TV_GAP : 'A';
+const VTT_STYLE =
+  'STYLE\n::cue(.sz2){font-size:130%}\n::cue(.sz3){font-size:160%}\n::cue(.gpB){line-height:1.6}\n\n';
+
+function decorate(lines, size, gap) {
+  let l = lines;
+  if (gap === 'C' && l.length > 1) l = l.flatMap((x, i) => (i ? [' ', x] : [x]));
+  const cls = [];
+  if (size !== '1') cls.push('sz' + size);
+  if (gap === 'B') cls.push('gpB');
+  const txt = l.join('\n');
+  return cls.length ? `<c.${cls.join('.')}>${txt}</c>` : txt;
+}
+
 // ---------- per-install config (list of upstream addons, stored in the URL path) ----------
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE === '1'; // for local testing only
 
@@ -153,9 +171,17 @@ function processSubs(raw, mode, fmt) {
       .map((c, i) => `${i + 1}\n${c.timing.replace(/\./g, ',')}\n${c.body.join('\n')}`)
       .join('\n\n') + '\n';
   }
+  const tv = mode === 'tv';
+  const styled = tv && (TV_SIZE !== '1' || TV_GAP === 'B');
   return (
     'WEBVTT\n\n' +
-    out.map((c, i) => `${i + 1}\n${c.timing.replace(/,/g, '.')}\n${c.body.join('\n')}`).join('\n\n') +
+    (styled ? VTT_STYLE : '') +
+    out
+      .map((c, i) => {
+        const body = tv ? decorate(c.body, TV_SIZE, TV_GAP) : c.body.join('\n');
+        return `${i + 1}\n${c.timing.replace(/,/g, '.')}\n${body}`;
+      })
+      .join('\n\n') +
     '\n'
   );
 }
@@ -166,22 +192,24 @@ function tsrt(sec) {
   return `${p(Math.floor(sec / 3600))}:${p(Math.floor((sec % 3600) / 60))}:${p(Math.floor(sec % 60))},000`;
 }
 
+// Test track (always WebVTT): text size 1-3 x line gap A-C, two-line sample, chosen word space.
 function buildTest() {
-  const sentence = 'שלום עולם, זה הסרט הכי יפה שראיתי';
-  const names = Object.keys(SPACES);
-  const cues = ['1\n00:00:00,500 --> 00:00:03,000\nHEBFIX TEST OK'];
+  const sp = SPACES[TV_SPACE];
+  const line1 = ['שלום', 'עולם,', 'זה', 'הסרט', 'הכי', 'יפה'].join(sp);
+  const line2 = ['שראיתי', 'בחיים', 'שלי'].join(sp);
+  const vt = (s) => tsrt(s).replace(',', '.');
+  const cues = ['1\n00:00:00.500 --> 00:00:03.000\nHEBFIX TEST OK'];
   let t = 4;
-  for (let round = 0; round < 20; round++) {
-    names.forEach((n, i) => {
-      [['1', false], ['2', true]].forEach(([o, vis]) => {
-        const base = vis ? visualReverse(sentence) : sentence;
-        const body = base.replace(/ /g, SPACES[n]);
-        cues.push(`${cues.length + 1}\n${tsrt(t)} --> ${tsrt(t + 4)}\n${String.fromCharCode(65 + i)}${o}\n${body}`);
-        t += 5;
-      });
-    });
+  for (let round = 0; round < 15; round++) {
+    for (const size of ['1', '2', '3']) {
+      for (const gap of ['A', 'B', 'C']) {
+        const body = `${size}${gap}\n${decorate([line1, line2], size, gap)}`;
+        cues.push(`${cues.length + 1}\n${vt(t)} --> ${vt(t + 5)}\n${body}`);
+        t += 6;
+      }
+    }
   }
-  return processSubs(cues.join('\n\n') + '\n', 'plain', FORMAT);
+  return 'WEBVTT\n\n' + VTT_STYLE + cues.join('\n\n') + '\n';
 }
 
 // ---------- http helpers ----------
@@ -281,7 +309,7 @@ const server = http.createServer(async (req, res) => {
     if (rest[0] === 'manifest.json') return send(res, 200, manifest(mode, cfgStr));
 
     if (rest[0] === 'subtitles' && mode === 'test') {
-      return send(res, 200, { subtitles: [{ id: 'hebfix-test', url: `${baseUrl(req)}/test/sub.${FORMAT}`, lang: 'heb' }] });
+      return send(res, 200, { subtitles: [{ id: 'hebfix-test', url: `${baseUrl(req)}/test/sub.vtt`, lang: 'heb' }] });
     }
 
     if (rest[0] === 'subtitles') {
@@ -289,7 +317,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (rest[0] && rest[0].startsWith('sub.') && mode === 'test') {
-      return send(res, 200, buildTest(), FORMAT === 'srt' ? 'application/x-subrip; charset=utf-8' : 'text/vtt; charset=utf-8');
+      return send(res, 200, buildTest(), 'text/vtt; charset=utf-8');
     }
 
     if (rest[0] && rest[0].startsWith('sub.')) {
